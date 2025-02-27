@@ -72,93 +72,137 @@ function addJobName() {
   }
 }
 
-function setStyle(ele: JobCardComponent & HTMLElement) {
-  if (!ele.__vue__.jobCard)
-    return;
-  if (!ele.__vue__.data)
-    return;
+function hideByName({ ele, brandName, jobName }: {
+  ele: HTMLElement,
+  brandName: string,
+  jobName: string,
+}) {
+
+  if (
+    blackRules.value.brandNameContains.some(item => brandName.includes(item))
+  ) {
+    ele.style.display = 'none';
+    return true;
+  }
+  else if (
+    blackRules.value.jobNameContains.some(item => jobName.includes(item))
+  ) {
+    ele.style.display = 'none';
+    return true;
+  }
+  else {
+    return false;
+  }
+}
+
+async function hideByActivateTime(ele: JobCardComponent & HTMLElement) {
+  if (!isJobCardComponent(ele)) return;
+  if (!ele.__vue__) return;
+  if (!ele.__vue__.data) return;
+
+  const brandName = ele.__vue__.data.brandName;
+  const jobName = ele.__vue__.data.jobName;
+  const encryptJobId = ele.__vue__.data.encryptJobId;
+  const jobCardCacheKey = `jobCard:encryptJobId:${encryptJobId}`;
+  const cachedJobCard = sessionStorage.getItem(jobCardCacheKey);
+  try {
+    if (cachedJobCard) {
+      ele.__vue__.jobCard = JSON.parse(cachedJobCard);
+      console.log('getJobCard cache hit', { brandName, jobName, ele });
+    } else {
+      console.log('getJobCard cache miss', { brandName, jobName, ele });
+    }
+  } catch (error) {
+    console.error(error);
+  }
+  if (!ele.__vue__.jobCard) {
+    const sleepTime = Math.random() * 1000 + 1000;
+    await new Promise(resolve => setTimeout(resolve, sleepTime));
+    try {
+      await ele.__vue__.getJobCard?.();
+    } catch (error) {
+      console.error(error);
+    }
+  }
+  if (!ele.__vue__.jobCard) return;
 
   const activeTimeDesc = ele.__vue__.jobCard.activeTimeDesc;
+  const hasAddActiveTimeDesc = ele.__vue__.data.skills.includes(activeTimeDesc);
+  sessionStorage.setItem(jobCardCacheKey, JSON.stringify(ele.__vue__.jobCard));
+  if (!hasAddActiveTimeDesc) {
+    ele.__vue__.data.skills.unshift(activeTimeDesc);
+  }
   const activeTimeDay = parseActiveTimeDesc(activeTimeDesc);
-
-  console.log({
-    ele,
-    jobName: ele.__vue__.data.jobName,
-    activeTimeDesc,
-    activeTimeDay,
-  });
-
   if (
     activeTimeDay
     > blackRules.value.activeDayGreater
   ) {
     ele.style.display = 'none';
+    return true;
+  } else {
+    return false;
   }
-  else if (
-    blackRules.value.brandNameContains.some(item =>
-      ele.__vue__.data?.brandName.includes(item),
-    )
-  ) {
-    ele.style.display = 'none';
-  }
-  else if (
-    blackRules.value.jobNameContains.some(item =>
-      ele.__vue__.data?.jobName.includes(item),
-    )
-  ) {
-    ele.style.display = 'none';
-  }
-  else {
-    ele.style.display = 'list-item';
-  }
+}
+
+function showElement({ ele }: { ele: HTMLElement; }) {
+  ele.style.display = 'list-item';
 }
 
 async function handleJobCardWrapperUpdate(ele: Element) {
-  await new Promise(resolve => setTimeout(resolve, 1000));
-  if (!isJobCardComponent(ele))
-    return;
-  if (!ele.__vue__.data?.jobName)
-    return;
-  let loadedJobCard = false;
-  if (!ele.__vue__.jobCard) {
-    await ele.__vue__.getJobCard();
-    loadedJobCard = true;
-  }
-  if (!ele.__vue__.jobCard)
-    return;
-  if (loadedJobCard) {
-    const activeTimeDesc = ele.__vue__.jobCard!.activeTimeDesc;
-    const hasAddActiveTimeDesc = ele.__vue__.data.skills.includes(activeTimeDesc);
-    if (!hasAddActiveTimeDesc) {
-      ele.__vue__.data.skills.unshift(activeTimeDesc);
-    }
-    setStyle(ele);
+  if (!isJobCardComponent(ele)) return;
+  if (!ele.__vue__) return;
+  if (!ele.__vue__.data) return;
+
+  const brandName = ele.__vue__.data.brandName;
+  const jobName = ele.__vue__.data.jobName;
+
+  const isHideByName = hideByName({ ele, brandName, jobName });
+  if (isHideByName) return;
+
+  const isHideByActivateTime = await hideByActivateTime(ele);
+  if (isHideByActivateTime) return;
+
+  showElement({ ele });
+}
+
+function triggerJobListWrapperUpdate() {
+  const result: HTMLDivElement | null = document.querySelector('.search-job-result');
+  console.log({ result });
+  if (result) {
+    handleJobListWrapperUpdate(result);
   }
 }
 
-function debounce<T extends Function>(cb: T, wait: number) {
-  let h = 0;
-  let callable = (...args: any) => {
-    clearTimeout(h);
-    h = setTimeout(() => cb(...args), wait);
-  };
-  return <T>(<any>callable);
-}
+const mutex = ref(false);
 
 async function handleJobListWrapperUpdate(ele: HTMLElement) {
+  if (mutex.value) {
+    console.warn('mutex locked return');
+    return;
+  }
+  mutex.value = true;
+  console.log('mutex locked');
+
   let jobCards;
-  while (true) {
+  let maxTryCount = 10;
+  while (maxTryCount--) {
     jobCards = ele.querySelectorAll('.job-card-wrapper');
-    if (jobCards.length >= 0) {
+    if (jobCards.length > 0) {
+      console.log('job-card-wrapper found', jobCards.length);
       break;
     }
     console.log('waiting for job-card-wrapper');
     await new Promise(resolve => setTimeout(resolve, 1000));
   }
+  await new Promise(resolve => setTimeout(resolve, 1000));
 
-  for (const jobCard of jobCards) {
-    handleJobCardWrapperUpdate(jobCard);
+  if (jobCards) {
+    for (const jobCard of jobCards) {
+      await handleJobCardWrapperUpdate(jobCard);
+    }
   }
+  mutex.value = false;
+  console.log('mutex unlocked');
 }
 
 let mutationObserver = ref<MutationObserver | null>(null);
@@ -168,7 +212,10 @@ onMounted(() => {
       const target = mutation.target;
       if (target instanceof HTMLElement) {
         if (target.classList.contains('job-list-wrapper') || target.classList.contains('search-job-result')) {
-          debounce(handleJobListWrapperUpdate, 1000)(target);
+          if (mutex.value) {
+            continue;
+          }
+          handleJobListWrapperUpdate(target);
         }
       }
     }
@@ -221,6 +268,8 @@ onUnmounted(() => {
 
       <input v-model="jobNameInput" type="text" @keydown.enter="addJobName"></input>
     </div>
+
+    <button  @click="triggerJobListWrapperUpdate">手动触发</button>
   </div>
 </template>
 
@@ -283,5 +332,18 @@ input {
   box-shadow: 0 0 4px rgba(0, 0, 0, 0.1);
   padding: 4px;
   margin: 4px;
+}
+
+button {
+  background-color: white;
+  border-radius: 8px;
+  box-shadow: 0 0 4px rgba(0, 0, 0, 0.1);
+  padding: 4px;
+  margin: 4px;
+
+  &:hover {
+    border-color: #00BEBD;
+    color: #00BEBD;
+  }
 }
 </style>

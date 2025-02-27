@@ -1,6 +1,6 @@
 export type JobCardComponent = {
-  __vue__: {
-    getJobCard: () => void;
+  __vue__?: {
+    getJobCard?: () => Promise<void>;
     jobCard: {
       activeTimeDesc: string;
     } | null;
@@ -8,6 +8,7 @@ export type JobCardComponent = {
       jobName: string;
       bossName: string;
       brandName: string;
+      encryptJobId: string;
       skills: string[];
     } | null;
   };

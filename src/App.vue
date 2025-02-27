@@ -136,6 +136,15 @@ async function handleJobCardWrapperUpdate(ele: Element) {
   }
 }
 
+function debounce<T extends Function>(cb: T, wait: number) {
+  let h = 0;
+  let callable = (...args: any) => {
+    clearTimeout(h);
+    h = setTimeout(() => cb(...args), wait);
+  };
+  return <T>(<any>callable);
+}
+
 async function handleJobListWrapperUpdate(ele: HTMLElement) {
   let jobCards;
   while (true) {
@@ -154,12 +163,12 @@ async function handleJobListWrapperUpdate(ele: HTMLElement) {
 
 let mutationObserver = ref<MutationObserver | null>(null);
 onMounted(() => {
-  mutationObserver.value = new MutationObserver((mutationsList, observer) => {
+  mutationObserver.value = new MutationObserver((mutationsList) => {
     for (let mutation of mutationsList) {
       const target = mutation.target;
       if (target instanceof HTMLElement) {
         if (target.classList.contains('job-list-wrapper') || target.classList.contains('search-job-result')) {
-          handleJobListWrapperUpdate(target);
+          debounce(handleJobListWrapperUpdate, 1000)(target);
         }
       }
     }

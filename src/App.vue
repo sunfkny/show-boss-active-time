@@ -6,12 +6,14 @@ import { isJobCardComponent } from './utils/element';
 import { parseActiveTimeDesc } from './utils/parse';
 
 interface BlackRule {
+  enableGetJobCard: boolean;
   activeDayGreater: number;
   brandNameContains: string[];
   jobNameContains: string[];
 }
 
 const blackRules = ref<BlackRule>({
+  enableGetJobCard: false,
   activeDayGreater: 7,
   brandNameContains: [],
   jobNameContains: [],
@@ -21,6 +23,7 @@ const blackRulesKey = 'blackRules';
 
 onMounted(() => {
   blackRules.value = GM_getValue<BlackRule>(blackRulesKey, {
+    enableGetJobCard: false,
     activeDayGreater: 7,
     brandNameContains: [],
     jobNameContains: [],
@@ -119,7 +122,10 @@ async function hideByActivateTime(ele: JobCardComponent & HTMLElement) {
     const sleepTime = Math.random() * 1000 + 1000;
     await new Promise(resolve => setTimeout(resolve, sleepTime));
     try {
-      await ele.__vue__.getJobCard?.();
+      if (ele.__vue__.getJobCard) {
+        await ele.__vue__.getJobCard();
+        getJobCardApiCount.value += 1;
+      }
     } catch (error) {
       console.error(error);
     }
@@ -159,8 +165,10 @@ async function handleJobCardWrapperUpdate(ele: Element) {
   const isHideByName = hideByName({ ele, brandName, jobName });
   if (isHideByName) return;
 
-  const isHideByActivateTime = await hideByActivateTime(ele);
-  if (isHideByActivateTime) return;
+  if (blackRules.value.enableGetJobCard) {
+    const isHideByActivateTime = await hideByActivateTime(ele);
+    if (isHideByActivateTime) return;
+  }
 
   showElement({ ele });
 }
@@ -228,15 +236,21 @@ onMounted(() => {
 onUnmounted(() => {
   mutationObserver.value?.disconnect();
 });
+
+const getJobCardApiCount = ref(0);
 </script>
 
 <template>
   <div class="container">
     <div class="card">
-      <div class="title">
-        隐藏活跃天数大于
+      <div>
+        <div style="display: flex; align-items: center;">
+          <span class="title">隐藏活跃天数大于</span>
+          <div>开启</div>
+          <input v-model="blackRules.enableGetJobCard" type="checkbox"></input>
+        </div>
       </div>
-      <input v-model="blackRules.activeDayGreater" type="number">
+      <input :disabled="!blackRules.enableGetJobCard" v-model="blackRules.activeDayGreater" type="number">
     </div>
 
     <div class="card">
@@ -269,7 +283,12 @@ onUnmounted(() => {
       <input v-model="jobNameInput" type="text" @keydown.enter="addJobName"></input>
     </div>
 
-    <button  @click="triggerJobListWrapperUpdate">手动触发</button>
+    <button @click="triggerJobListWrapperUpdate">手动触发</button>
+
+    <div class="card">
+      <div>请求次数 {{ getJobCardApiCount }}</div>
+      <div>加载中 {{ mutex }}</div>
+    </div>
   </div>
 </template>
 
@@ -277,7 +296,7 @@ onUnmounted(() => {
 .container {
   display: flex;
   flex-direction: column;
-  width: 180px;
+  width: min-content;
 }
 
 input {
@@ -286,7 +305,6 @@ input {
   border-radius: 5px;
   padding: 4px 8px;
   margin: 4px;
-  width: calc(100% - 8px) !important;
 
   &:focus {
     border-color: #00BEBD;
